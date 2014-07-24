@@ -55,4 +55,6 @@ git branch
 git branch nombranche
 git checkout nombranche
 
+# Valider un commit
+git push
 
