@@ -1,11 +1,11 @@
 '''
 Autor : Simon
-Date  : 21.07.2014
-Title : transmitter-bip.py
-Resume: Modulate & send the message (after a bip)
+Date  : 08.08.2014
+Title : t-hamming.py
+Resume: Modulate & send the message with hamming corrector code (after a bip)
 
-Run   : python transmitter-bip.py (ID.dest) (message) 
-Ex    : python transmitter-bip.py 2 azerty
+Run   : python t-hamming (ID.dest) (message) 
+Ex    : python t-hamming 2 azerty
 '''
 
 # import matplotlib.pyplot as plt
@@ -17,22 +17,11 @@ import time
 import sys
 
 import bits_convert_v2
-import header_v3
+import header_hamming
+import hamming
 
 
 ########################################################################
-
-def channel_coding(data, n):
-	data_protec=[]
-	for i in range(len(data)):
-		if data[i]==1:
-			for i in range(n):
-				data_protec.append(1)
-		else:
-			for i in range(n):
-				data_protec.append(0)
-	return data_protec
-
 
 def generate_sin(time_base, f):
 	return np.sin(2*np.pi*f*time_base)
@@ -59,7 +48,7 @@ fe = 44100
 f0=2000
 f1=4000
 dt =1.0/fe
-duration = 0.006
+duration = 0.01
 time_base=np.arange(0, duration, dt)
 
 # Time
@@ -94,14 +83,14 @@ else:
 my_data = bits_convert_v2.tobits(magic_word)
 
 # Built header
-my_header = header_v3.toheader(id_source,id_dest,len(my_data)/8)
+my_header = header_hamming.toheader(id_source,id_dest,len(my_data)/8)
 
-my_data_h = my_header + my_data
+# Add Hamming code
+my_data_ham = hamming.loop_encode_h(my_data)
+my_data_h = my_header + my_data_ham
 
 # Add protection
-my_data_c = my_data_h + [0,0,0,0,0] 
-n = 3
-my_data_c = channel_coding(my_data_c,n)
+my_data_c = my_data_h + [0,0,0,1,1,1]
 
 # FSK modulation
 my_fsk = fsk_modulation(my_data_c, s1, s0)

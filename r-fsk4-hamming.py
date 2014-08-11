@@ -1,8 +1,8 @@
 '''
 Autor : Simon
-Date  : 23.07.2014
-Title : receiver-bip.py
-Resume: Decode a acoustic message in real time (require a bip)
+Date  : 08.08.2014
+Title : r-fsk4-hamming.py
+Resume: Decode a acoustic message in real time with hamming corrector code (require a bip)
 '''
 
 import matplotlib.pyplot as plt
@@ -14,12 +14,13 @@ import time
 import sys
 
 import bits_convert_v2
-import header_v3
+import header_hamming
+import hamming
 
 
 ########################################################################
 
-def decode_fsk(signal, nb_echantillon):
+def decode_fsk(signal, nb_echantillon, x):
 	rest = len(signal) % nb_echantillon
 	zero = np.zeros((nb_echantillon - rest))
 	signal = np.concatenate((signal,zero))
@@ -29,46 +30,68 @@ def decode_fsk(signal, nb_echantillon):
 	for i in range(nb_trame):
 		tmp=signal_matrix[i]
 		if np.mean(tmp)>0.2:
-			message_rcv.append(0)
+			message_rcv.append(x)
 		else:
-			message_rcv.append(1)
+			message_rcv.append(0)
 	return message_rcv
 
+def add_list(l1, l2, l3):
+	l=[]
+	len_l = min(len(l1),len(l2),len(l3))
+	for i in range(len_l):
+		l.append(l1[i]+l2[i]+l3[i])
+	return l
 
-def channel_decoding(message_rcv,n):
-	message_bin=[]
-	nb_trame = len(message_rcv)/n
-	for i in range(nb_trame):
-		tmp=message_rcv[i*n:(i+1)*n]
-		if np.mean(tmp)<0.4:
-			message_bin.append(0)
-		else:
-			message_bin.append(1)
-	return message_bin
-	
-def find_message(data_array, id_dest, b, a, duration):
+def fsk4_to_bin(data):
+	to_return = []
+	for i in range(len(data)):
+		if data[i]==1:
+			to_return = to_return + [0,1]
+		elif data[i] == 2:
+			to_return = to_return + [1,1]
+		elif data[i] == 3:
+			to_return = to_return + [0,0]
+		else :
+			to_return = to_return + [1,0]
+	return to_return
+
+
+def find_message(data_array, id_dest, b1, a1, b2, a2, b3, a3, duration):
 	# Filter
-	data_filt = scipy.signal.filtfilt(b, a, data_array)
+	data_f1 = scipy.signal.filtfilt(b1, a1, data_array)
+	data_f2 = scipy.signal.filtfilt(b2, a2, data_array)
+	data_f3 = scipy.signal.filtfilt(b3, a3, data_array)
 	# Absolute value
-	my_signal_abs = abs(data_filt)
-	my_signal_abs = my_signal_abs / max(my_signal_abs)
+	data_f1_abs = abs(data_f1)
+	data_f2_abs = abs(data_f2)
+	data_f3_abs = abs(data_f3)
+	data_f1_abs = data_f1_abs / max(data_f1_abs)
+	data_f2_abs = data_f2_abs / max(data_f2_abs)
+	data_f3_abs = data_f3_abs / max(data_f3_abs)
 	# Detect first bit
-	for k in range(len(my_signal_abs)):
-		if my_signal_abs[k] > 0.2:
-			my_signal_k = my_signal_abs[k:]
+	for k in range(len(data_f1_abs)):
+		if data_f3_abs[k] > 0.2:
+			data_f1_abs = data_f1_abs[k:]
+			data_f2_abs = data_f2_abs[k:]
+			data_f3_abs = data_f3_abs[k:]
 			break
-	my_message_rcv = decode_fsk(my_signal_k, int(44100*duration))
-	# Channel decoding
-	my_message_rcv = channel_decoding(my_message_rcv,3)
+	# Decode fsk
+	message_f1 = decode_fsk(data_f1_abs, int(44100*duration), 1)
+	message_f2 = decode_fsk(data_f2_abs, int(44100*duration), 2)
+	message_f3 = decode_fsk(data_f3_abs, int(44100*duration), 3)
+	# fsk4 to bin
+	message_fsk4 = add_list(message_f1,message_f2,message_f3)
+	message_bin = fsk4_to_bin(message_fsk4)
 	# Extract the header
-	sync,src,dst,len_data,shift = header_v3.fromheader(my_message_rcv, id_dest)
+	sync,src,dst,len_data,shift = header_hamming.fromheader(message_bin, id_dest)
 	if sync == None:
 		my_str = None
 	elif dst != id_dest:
 		my_str = None
 	else:
 		# Isole the message
-		data_to_decode = my_message_rcv[20+shift : 20+shift+len_data*8]
+		decode_hamming = hamming.loop_decode_h(message_bin[29+shift:])
+		data_to_decode = decode_hamming[:len_data*8]
 		# Message decode
 		my_str=bits_convert_v2.frombits(data_to_decode)
 	print 'Name of source            :',src
@@ -85,14 +108,16 @@ CHANNELS = 1
 RATE = 44100
 FORMAT = pyaudio.paInt16
 CHUNK = 1024
-RECORD_SECONDS = 2
+RECORD_SECONDS = 1.5
 
 # Define Frequency
 fe = 44100
-f0=2000
-f1=4000
+f0=2000 	#10
+f1=4000 	#01
+f2=6000 	#11
+f3=8000 	#00
 dt =1.0/fe
-duration = 0.006
+duration = 0.01
 time_base=np.arange(0, duration, dt)
 
 # Config DST
@@ -100,14 +125,26 @@ id_dest = 2
 micro_input = ''
 start = time.time()
 
-# Filter f0 - 2kHz
+# Filter f1 - 4kHz
 N = 3
-x = f0/(fe/2.0)
+x = f1/(fe/2.0)
 Wn=(round(x-0.01,2), round(x+0.01,2))
-b_f0, a_f0 = scipy.signal.butter(N, Wn, 'bandpass')
+b_f1, a_f1 = scipy.signal.butter(N, Wn, 'bandpass')
 
-# Filter Bip - 8kHz
-x = 8000/(fe/2.0)
+# Filter f2 - 6kHz
+N = 3
+x = f2/(fe/2.0)
+Wn=(round(x-0.01,2), round(x+0.01,2))
+b_f2, a_f2 = scipy.signal.butter(N, Wn, 'bandpass')
+
+# Filter f3 - 8kHz
+N = 3
+x = f3/(fe/2.0)
+Wn=(round(x-0.01,2), round(x+0.01,2))
+b_f3, a_f3 = scipy.signal.butter(N, Wn, 'bandpass')
+
+# Filter Bip - 10kHz
+x = 10000/(fe/2.0)
 Wn=(round(x-0.01,2), round(x+0.01,2))
 b_bip, a_bip = scipy.signal.butter(N, Wn, 'bandpass')
 
@@ -115,7 +152,7 @@ b_bip, a_bip = scipy.signal.butter(N, Wn, 'bandpass')
 p = pyaudio.PyAudio()
 
 # Open stream
-print "Stream Start"
+print "Stream Start - FSK4"
 stream = p.open(format=FORMAT,
                 channels=CHANNELS,
                 rate=RATE,
@@ -123,7 +160,7 @@ stream = p.open(format=FORMAT,
                 frames_per_buffer=CHUNK)
 
 # Record micro
-while (time.time()-start) < 30:
+while (time.time()-start) < 10:
 	for i in range(5):
 		data = stream.read(CHUNK)
 		micro_input = micro_input + data
@@ -141,7 +178,7 @@ while (time.time()-start) < 30:
 		# Convert micro(str) to array
 		frames = len(micro_input)/2 
 		data_array = np.array(struct.unpack("%dh" % (frames), micro_input))
-		a = find_message(data_array, id_dest, b_f0, a_f0, duration)
+		a = find_message(data_array, id_dest, b_f1, a_f1, b_f2, a_f2, b_f3, a_f3, duration)
 		micro_input=''
 
 

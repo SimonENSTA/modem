@@ -1,8 +1,8 @@
 '''
 Autor : Simon
-Date  : 23.07.2014
-Title : receiver-bip.py
-Resume: Decode a acoustic message in real time (require a bip)
+Date  : 08.08.2014
+Title : r-hamming.py
+Resume: Decode a acoustic message in real time with hamming corrector code (require a bip)
 '''
 
 import matplotlib.pyplot as plt
@@ -14,7 +14,8 @@ import time
 import sys
 
 import bits_convert_v2
-import header_v3
+import header_hamming
+import hamming
 
 
 ########################################################################
@@ -35,17 +36,6 @@ def decode_fsk(signal, nb_echantillon):
 	return message_rcv
 
 
-def channel_decoding(message_rcv,n):
-	message_bin=[]
-	nb_trame = len(message_rcv)/n
-	for i in range(nb_trame):
-		tmp=message_rcv[i*n:(i+1)*n]
-		if np.mean(tmp)<0.4:
-			message_bin.append(0)
-		else:
-			message_bin.append(1)
-	return message_bin
-	
 def find_message(data_array, id_dest, b, a, duration):
 	# Filter
 	data_filt = scipy.signal.filtfilt(b, a, data_array)
@@ -58,17 +48,16 @@ def find_message(data_array, id_dest, b, a, duration):
 			my_signal_k = my_signal_abs[k:]
 			break
 	my_message_rcv = decode_fsk(my_signal_k, int(44100*duration))
-	# Channel decoding
-	my_message_rcv = channel_decoding(my_message_rcv,3)
 	# Extract the header
-	sync,src,dst,len_data,shift = header_v3.fromheader(my_message_rcv, id_dest)
+	sync,src,dst,len_data,shift = header_hamming.fromheader(my_message_rcv, id_dest)
 	if sync == None:
 		my_str = None
 	elif dst != id_dest:
 		my_str = None
 	else:
 		# Isole the message
-		data_to_decode = my_message_rcv[20+shift : 20+shift+len_data*8]
+		decode_hamming = hamming.loop_decode_h(my_message_rcv[29+shift:])
+		data_to_decode = decode_hamming[:len_data*8]
 		# Message decode
 		my_str=bits_convert_v2.frombits(data_to_decode)
 	print 'Name of source            :',src
@@ -85,14 +74,14 @@ CHANNELS = 1
 RATE = 44100
 FORMAT = pyaudio.paInt16
 CHUNK = 1024
-RECORD_SECONDS = 2
+RECORD_SECONDS = 2.5
 
 # Define Frequency
 fe = 44100
 f0=2000
 f1=4000
 dt =1.0/fe
-duration = 0.006
+duration = 0.01
 time_base=np.arange(0, duration, dt)
 
 # Config DST
@@ -123,7 +112,7 @@ stream = p.open(format=FORMAT,
                 frames_per_buffer=CHUNK)
 
 # Record micro
-while (time.time()-start) < 30:
+while (time.time()-start) < 10:
 	for i in range(5):
 		data = stream.read(CHUNK)
 		micro_input = micro_input + data
