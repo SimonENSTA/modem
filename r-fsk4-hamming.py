@@ -5,7 +5,7 @@ Title : r-fsk4-hamming.py
 Resume: Decode a acoustic message in real time with hamming corrector code (require a bip)
 '''
 
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import scipy.signal
 import numpy as np
 import pyaudio
@@ -164,7 +164,7 @@ while (time.time()-start) < 10:
 	for i in range(5):
 		data = stream.read(CHUNK)
 		micro_input = micro_input + data
-	# filter 8kHz
+	# search Bip
 	frames = len(micro_input)/2 
 	data_array = np.array(struct.unpack("%dh" % (frames), micro_input))
 	data_array = data_array / max(abs(data_array))
@@ -175,10 +175,12 @@ while (time.time()-start) < 10:
 		for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
 			data = stream.read(CHUNK)
 			micro_input = micro_input + data
+		record=time.time()
 		# Convert micro(str) to array
 		frames = len(micro_input)/2 
 		data_array = np.array(struct.unpack("%dh" % (frames), micro_input))
 		a = find_message(data_array, id_dest, b_f1, a_f1, b_f2, a_f2, b_f3, a_f3, duration)
+		print 'Time without recording    :',time.time()-record
 		micro_input=''
 
 
